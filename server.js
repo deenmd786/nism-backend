@@ -1,31 +1,27 @@
 const express = require("express");
-const dotenv = require("dotenv");
-const cors = require("cors");
-const connectDB = require("./config/db");
+const router = express.Router();
 
-dotenv.config();
-connectDB();
+const {
+  registerUser,
+  loginUser,
+  googleLogin
+} = require("../controllers/authController");
 
-const app = express();
+const auth = require("../middleware/authMiddleware");
+const User = require("../models/User");
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+router.post("/register", registerUser);
+router.post("/login", loginUser);
+router.post("/google", googleLogin);
 
-// Routes
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/wallet", require("./routes/walletRoutes"));
-
-// Test route
-app.get("/", (req, res) => {
-  res.json({ message: "API is running..." });
+// 🔹 Get current user
+router.get("/me", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: "Something went wrong!" });
-});
-
-
-module.exports = app;
+module.exports = router;
