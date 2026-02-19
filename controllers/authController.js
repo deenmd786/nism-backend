@@ -5,8 +5,9 @@ const { OAuth2Client } = require("google-auth-library");
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// 🔹 REGISTER
-exports.registerUser = async (req, res) => {
+// --- 1. Define Functions ---
+
+const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
@@ -15,7 +16,6 @@ exports.registerUser = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user with default wallet values
     const user = await User.create({
       name,
       email,
@@ -44,8 +44,7 @@ exports.registerUser = async (req, res) => {
   }
 };
 
-// 🔹 LOGIN
-exports.loginUser = async (req, res) => {
+const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -73,8 +72,7 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// 🔹 GOOGLE LOGIN
-exports.googleLogin = async (req, res) => {
+const googleLogin = async (req, res) => {
   try {
     const { token } = req.body;
 
@@ -84,11 +82,9 @@ exports.googleLogin = async (req, res) => {
     });
 
     const payload = ticket.getPayload();
-
     let user = await User.findOne({ email: payload.email });
 
     if (!user) {
-      // Create new user with default wallet values
       user = await User.create({
         name: payload.name,
         email: payload.email,
@@ -119,18 +115,23 @@ exports.googleLogin = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-exports.getMe = async (req, res) => {
+
+const getMe = async (req, res) => {
   try {
-    // req.user.id comes from the authMiddleware
-    const user = await User.findById(req.user.id).select("-password"); // Exclude password
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
     res.json(user);
   } catch (error) {
     console.error("Get Me Error:", error);
     res.status(500).json({ message: "Server error" });
   }
+};
+
+// --- 2. EXPORT EVERYTHING AT THE BOTTOM ---
+// This ensures 'getMe' is definitely included
+module.exports = {
+  registerUser,
+  loginUser,
+  googleLogin,
+  getMe
 };
