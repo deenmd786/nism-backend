@@ -17,15 +17,9 @@ const userSchema = new mongoose.Schema({
     unlockedAt: { type: Date, default: Date.now }
   }],
   
-  // Simple transaction history
-  transactions: [{
-    type: { type: String, enum: ['earn_gold', 'exchange', 'unlock_test'] },
-    goldChange: Number,
-    crystalsChange: Number,
-    description: String,
-    testId: String,
-    timestamp: { type: Date, default: Date.now }
-  }]
+  // ✅ SECURITY: Store successful payment IDs so users can't reuse them
+  processedPayments: [{ type: String }] 
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);

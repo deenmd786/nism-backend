@@ -1,47 +1,31 @@
 const express = require("express");
 const router = express.Router();
 
-// --- 1. Robust Auth Import ---
-// Import the raw middleware object/function
-const authMiddleware = require("../middleware/authMiddleware");
+// Clean auth import
+const auth = require("../middleware/authMiddleware");
 
-// Check if it was exported as "module.exports = func" OR "exports.auth = func"
-// This fixes the "handler must be a function" error regardless of export style
-const auth = typeof authMiddleware === 'function' 
-  ? authMiddleware 
-  : authMiddleware.auth;
-
-// --- 2. Robust Controller Import ---
-const controller = require("../controllers/walletController");
+// Import your controller functions (removed getTransactions, added Razorpay)
 const {
   getWalletData,
   addGold,
   exchangeGoldForCrystals,
   unlockTest,
   checkTestUnlocked,
-  getTransactions
-} = controller;
+  createRazorpayOrder,    // <-- ADDED FOR RAZORPAY
+  verifyRazorpayPayment   // <-- ADDED FOR RAZORPAY
+} = require("../controllers/walletController");
 
-// --- 3. Safety Check (Logs to Vercel Console if something is wrong) ---
-if (typeof auth !== 'function') {
-  console.error("❌ CRITICAL ERROR: 'auth' middleware is missing or not a function. Received:", typeof auth);
-  // Fallback to prevent crash (optional, but good for debugging)
-  throw new Error("Auth middleware is not a function");
-}
-
-if (typeof getWalletData !== 'function') {
-  console.error("❌ CRITICAL ERROR: 'getWalletData' is missing. Check walletController.js exports.");
-  throw new Error("Controller function is missing");
-}
-
-// --- 4. Define Routes ---
 console.log("✅ Wallet Routes loaded successfully");
 
+// Existing Routes
 router.get("/", auth, getWalletData);
 router.post("/gold/add", auth, addGold);
 router.post("/exchange", auth, exchangeGoldForCrystals);
 router.post("/tests/unlock", auth, unlockTest);
 router.get("/tests/:testId/status", auth, checkTestUnlocked);
-router.get("/transactions", auth, getTransactions);
+
+// --- NEW RAZORPAY ROUTES ---
+router.post("/razorpay/create-order", auth, createRazorpayOrder);
+router.post("/razorpay/verify-payment", auth, verifyRazorpayPayment);
 
 module.exports = router;

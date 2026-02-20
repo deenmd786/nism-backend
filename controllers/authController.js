@@ -23,7 +23,7 @@ const registerUser = async (req, res) => {
       gold: 0,
       crystals: 0,
       unlockedTests: [],
-      transactions: []
+      processedPayments: [] // <-- REPLACED transactions WITH processedPayments
     });
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
@@ -93,7 +93,7 @@ const googleLogin = async (req, res) => {
         gold: 0,
         crystals: 0,
         unlockedTests: [],
-        transactions: []
+        processedPayments: [] // <-- REPLACED transactions WITH processedPayments
       });
     }
 
@@ -118,7 +118,8 @@ const googleLogin = async (req, res) => {
 
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
+    // SECURITY UPDATE: Do not send the processedPayments array to the client
+    const user = await User.findById(req.user.id).select("-password -processedPayments");
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json(user);
   } catch (error) {
