@@ -1,14 +1,16 @@
 const User = require("../models/User");
-const Razorpay = require("razorpay");
-const crypto = require("crypto");
+const { google } = require('googleapis');
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+
+const auth = new google.auth.GoogleAuth({
+  keyFile: './service-account.json', 
+  scopes: ['https://www.googleapis.com/auth/androidpublisher']
 });
+const androidPublisher = google.androidpublisher({ version: 'v3', auth });
 
-// 1. Get Wallet Data (Removed transactions)
+
+
+// 1. Get Wallet Data
 const getWalletData = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('gold crystals unlockedTests');
@@ -25,7 +27,7 @@ const getWalletData = async (req, res) => {
   }
 };
 
-// 2. Add Gold (Removed transactions.push)
+// 2. Add Gold (Ads, Daily Bonus)
 const addGold = async (req, res) => {
   try {
     const { amount } = req.body;
@@ -44,7 +46,7 @@ const addGold = async (req, res) => {
   }
 };
 
-// 3. Exchange Gold for Crystals (Updated: 500 Gold = 1 Crystal)
+// 3. Exchange Gold for Crystals (500 Gold = 1 Crystal)
 const exchangeGoldForCrystals = async (req, res) => {
   try {
     const { goldAmount } = req.body;
@@ -78,7 +80,7 @@ const exchangeGoldForCrystals = async (req, res) => {
   }
 };
 
-// 4. Unlock Test (Removed transactions.push)
+// 4. Unlock Test
 const unlockTest = async (req, res) => {
   try {
     const { testId } = req.body;
@@ -105,7 +107,7 @@ const unlockTest = async (req, res) => {
   }
 };
 
-// 5. Check Test Unlocked (No changes needed)
+// 5. Check Test Unlocked
 const checkTestUnlocked = async (req, res) => {
   try {
     const { testId } = req.params;
@@ -120,57 +122,52 @@ const checkTestUnlocked = async (req, res) => {
   }
 };
 
-// --- RAZORPAY FUNCTIONS ---
+// --- NEW GOOGLE PLAY VERIFICATION ---
 
-// 6. Create Razorpay Order
-const createRazorpayOrder = async (req, res) => {
+const verifyGooglePlayPurchase = async (req, res) => {
   try {
-    const { amountInRupees } = req.body;
-    
-    if (!amountInRupees || amountInRupees <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
-    }
+    const { productId, purchaseToken, orderId, goldReward } = req.body;
 
-    const options = {
-      amount: amountInRupees * 100, // Razorpay uses paise
-      currency: "INR",
-      receipt: `receipt_${req.user.id}_${Date.now()}`
-    };
-
-    const order = await razorpay.orders.create(options);
-    res.json({ success: true, order_id: order.id, amount: options.amount });
-  } catch (error) {
-    console.error("Create Razorpay order error:", error);
-    res.status(500).json({ message: "Server error creating order" });
-  }
-};
-
-// 7. Verify Razorpay Payment (Removed transactions.push, kept processedPayments check)
-const verifyRazorpayPayment = async (req, res) => {
-  try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, goldReward } = req.body;
-
-    const generated_signature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest('hex');
-
-    if (generated_signature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid signature! Scam detected." });
+    // Make sure we received the required data from Flutter
+    if (!orderId || !purchaseToken || !productId) {
+      return res.status(400).json({ success: false, message: "Missing purchase data" });
     }
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.processedPayments && user.processedPayments.includes(razorpay_payment_id)) {
-      return res.status(400).json({ success: false, message: "Reward already claimed." });
+    // 🔴 SECURITY CHECK 1: Prevent "Replay Attacks" locally
+    // If we have seen this exact order ID before, block it!
+    if (user.processedPayments && user.processedPayments.includes(orderId)) {
+      return res.status(400).json({ success: false, message: "Reward already claimed for this purchase." });
     }
 
+    // 🔴 SECURITY CHECK 2: Ask Google if the purchase is actually real!
+    let purchaseReceipt;
+    try {
+      const response = await androidPublisher.purchases.products.get({
+        packageName: 'com.digroz.learning',
+        productId: productId,
+        token: purchaseToken
+      });
+      purchaseReceipt = response.data;
+    } catch (googleError) {
+      console.error("Failed to verify token with Google:", googleError.message);
+      return res.status(400).json({ success: false, message: "Invalid purchase token from Google." });
+    }
+
+    // purchaseState 0 means "Purchased". 1 means "Canceled". 2 means "Pending".
+    if (purchaseReceipt.purchaseState !== 0) {
+      return res.status(400).json({ success: false, message: "Purchase is not in a completed state." });
+    }
+
+    // 🟢 SUCCESS: Google confirmed it is real! Give the user their gold.
     const rewardAmount = parseInt(goldReward) || 0;
     user.gold = (user.gold || 0) + rewardAmount;
     
+    // Save the orderId into the array so it can NEVER be used again
     if (!user.processedPayments) user.processedPayments = [];
-    user.processedPayments.push(razorpay_payment_id);
+    user.processedPayments.push(orderId);
 
     await user.save();
     
@@ -178,11 +175,11 @@ const verifyRazorpayPayment = async (req, res) => {
       success: true, 
       gold: user.gold, 
       crystals: user.crystals, 
-      message: `Successfully added ${rewardAmount} gold!` 
+      message: `Payment Verified! Successfully added ${rewardAmount} gold!` 
     });
 
   } catch (error) {
-    console.error("Verify Razorpay payment error:", error);
+    console.error("Verify Google Play payment error:", error);
     res.status(500).json({ message: "Server error verifying payment" });
   }
 };
@@ -194,6 +191,5 @@ module.exports = {
   exchangeGoldForCrystals,
   unlockTest,
   checkTestUnlocked,
-  createRazorpayOrder,
-  verifyRazorpayPayment
+  verifyGooglePlayPurchase // <-- EXPORTED NEW METHOD
 };
