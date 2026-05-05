@@ -126,7 +126,7 @@ const checkTestUnlocked = async (req, res) => {
 
 const verifyGooglePlayPurchase = async (req, res) => {
   try {
-    const { productId, purchaseToken, orderId, goldReward } = req.body;
+    const { productId, purchaseToken, orderId, crystalReward } = req.body;
 
     // Make sure we received the required data from Flutter
     if (!orderId || !purchaseToken || !productId) {
@@ -162,8 +162,8 @@ const verifyGooglePlayPurchase = async (req, res) => {
     }
 
     // 🟢 SUCCESS: Google confirmed it is real! Give the user their gold.
-    const rewardAmount = parseInt(goldReward) || 0;
-    user.gold = (user.gold || 0) + rewardAmount;
+    const rewardAmount = parseInt(crystalReward) || 0;
+    user.crystals = (user.crystals || 0) + rewardAmount;
     
     // Save the orderId into the array so it can NEVER be used again
     if (!user.processedPayments) user.processedPayments = [];
@@ -175,7 +175,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
       success: true, 
       gold: user.gold, 
       crystals: user.crystals, 
-      message: `Payment Verified! Successfully added ${rewardAmount} gold!` 
+      message: `Payment Verified! Successfully added ${rewardAmount} crystals!` 
     });
 
   } catch (error) {
