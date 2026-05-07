@@ -1,15 +1,22 @@
 const User = require("../models/User");
 
-// 1. Get Wallet Data
+// 1. Get Wallet Data (Added referral code and daily bonus info)
 const getWalletData = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('gold crystals unlockedTests');
+    const user = await User.findById(req.user.id).select('gold crystals unlockedTests referralCode');
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Generate a referral code if the user doesn't have one yet
+    if (!user.referralCode) {
+      user.referralCode = "NISM" + user._id.toString().substring(0, 6).toUpperCase();
+      await user.save();
+    }
 
     res.json({
       gold: user.gold || 0,
       crystals: user.crystals || 0,
-      unlockedTests: user.unlockedTests ? user.unlockedTests.map(t => t.testId) : []
+      unlockedTests: user.unlockedTests ? user.unlockedTests.map(t => t.testId) : [],
+      referralCode: user.referralCode
     });
   } catch (error) {
     console.error("Get wallet error:", error);
@@ -17,7 +24,7 @@ const getWalletData = async (req, res) => {
   }
 };
 
-// 2. Add Gold (Ads, Daily Bonus)
+// 2. Add Gold (Ads only now - Daily Bonus has its own secure route)
 const addGold = async (req, res) => {
   try {
     const { amount } = req.body;
@@ -36,29 +43,86 @@ const addGold = async (req, res) => {
   }
 };
 
-// 3. Exchange Gold for Crystals (500 Gold = 1 Crystal)
+// ==========================================
+// 🛡️ NEW: SECURE DAILY BONUS LOGIC
+// ==========================================
+
+// Check if Daily Bonus is available
+const getDailyBonusStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const lastClaim = user.lastDailyClaim;
+    let isAvailable = true;
+    let nextAvailableTime = null;
+
+    if (lastClaim) {
+      const diffMs = new Date() - lastClaim;
+      if (diffMs < 24 * 60 * 60 * 1000) { // Less than 24 hours ago
+        isAvailable = false;
+        nextAvailableTime = new Date(lastClaim.getTime() + 24 * 60 * 60 * 1000);
+      }
+    }
+
+    res.json({ isAvailable, nextAvailableTime });
+  } catch (error) {
+    console.error("Status error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Actually Claim the Daily Bonus
+const claimDailyBonus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const now = new Date();
+    const lastClaim = user.lastDailyClaim;
+
+    // Check on the SERVER side if 24 hours have passed
+    if (lastClaim) {
+      const diffMs = now - lastClaim;
+      if (diffMs < 24 * 60 * 60 * 1000) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Daily bonus not ready yet" 
+        });
+      }
+    }
+
+    // Give reward and update the server timestamp
+    user.gold = (user.gold || 0) + 50;
+    user.lastDailyClaim = now;
+    await user.save();
+
+    res.json({ success: true, gold: user.gold, message: "Claimed 50 gold" });
+  } catch (error) {
+    console.error("Claim bonus error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ==========================================
+// EXISTING LOGIC (Exchanges & Tests)
+// ==========================================
+
 const exchangeGoldForCrystals = async (req, res) => {
   try {
     const { goldAmount } = req.body;
-    
-    // Check if they have at least 500 gold
-    if (goldAmount < 500) {
-      return res.status(400).json({ message: "Minimum 500 gold required" });
-    }
+    if (goldAmount < 500) return res.status(400).json({ message: "Minimum 500 gold required" });
 
-    // Calculate how many crystals they get and exactly how much gold to deduct
     const crystalsToAdd = Math.floor(goldAmount / 500);
     const goldToDeduct = crystalsToAdd * 500;
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Ensure they have enough balance
     if ((user.gold || 0) < goldToDeduct) {
       return res.status(400).json({ message: `Not enough gold. Need ${goldToDeduct}` });
     }
 
-    // Process the exchange
     user.gold -= goldToDeduct;
     user.crystals = (user.crystals || 0) + crystalsToAdd;
     await user.save();
@@ -70,7 +134,6 @@ const exchangeGoldForCrystals = async (req, res) => {
   }
 };
 
-// 4. Unlock Test
 const unlockTest = async (req, res) => {
   try {
     const { testId } = req.body;
@@ -97,7 +160,6 @@ const unlockTest = async (req, res) => {
   }
 };
 
-// 5. Check Test Unlocked
 const checkTestUnlocked = async (req, res) => {
   try {
     const { testId } = req.params;
@@ -112,14 +174,11 @@ const checkTestUnlocked = async (req, res) => {
   }
 };
 
-// --- NEW GOOGLE PLAY VERIFICATION ---
-
-// 6. Verify Google Play Purchase and Give Gold
+// 6. Verify Google Play Purchase
 const verifyGooglePlayPurchase = async (req, res) => {
   try {
-    const { productId, purchaseToken, orderId, goldReward } = req.body;
+    const { productId, purchaseToken, orderId, crystalReward } = req.body; // Changed from goldReward to crystalReward
 
-    // Make sure we received the required data from Flutter
     if (!orderId || !purchaseToken || !productId) {
       return res.status(400).json({ success: false, message: "Missing purchase data" });
     }
@@ -127,18 +186,14 @@ const verifyGooglePlayPurchase = async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 🔴 SECURITY CHECK: Prevent "Replay Attacks"
-    // Google Play order IDs look like: GPA.3333-3333-3333-33333
-    // If we have seen this exact order ID before, block it!
     if (user.processedPayments && user.processedPayments.includes(orderId)) {
       return res.status(400).json({ success: false, message: "Reward already claimed for this purchase." });
     }
 
-    // 🟢 SUCCESS: Give the user their gold!
-    const rewardAmount = parseInt(goldReward) || 0;
-    user.gold = (user.gold || 0) + rewardAmount;
+    // Give Crystals, not Gold!
+    const rewardAmount = parseInt(crystalReward) || 0;
+    user.crystals = (user.crystals || 0) + rewardAmount;
     
-    // Save the orderId into the array so it can NEVER be used again
     if (!user.processedPayments) user.processedPayments = [];
     user.processedPayments.push(orderId);
 
@@ -148,7 +203,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
       success: true, 
       gold: user.gold, 
       crystals: user.crystals, 
-      message: `Successfully added ${rewardAmount} gold!` 
+      message: `Successfully added ${rewardAmount} crystals!` 
     });
 
   } catch (error) {
@@ -164,5 +219,7 @@ module.exports = {
   exchangeGoldForCrystals,
   unlockTest,
   checkTestUnlocked,
-  verifyGooglePlayPurchase // <-- EXPORTED NEW METHOD
+  verifyGooglePlayPurchase,
+  getDailyBonusStatus, // NEW
+  claimDailyBonus      // NEW
 };
