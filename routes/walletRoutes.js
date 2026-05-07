@@ -10,7 +10,9 @@ const {
   exchangeGoldForCrystals,
   unlockTest,
   checkTestUnlocked,
-  verifyGooglePlayPurchase // <-- NEW GOOGLE PLAY METHOD
+  verifyGooglePlayPurchase,
+  getDailyBonusStatus, // <-- IMPORTED NEW METHOD
+  claimDailyBonus      // <-- IMPORTED NEW METHOD
 } = require("../controllers/walletController");
 
 console.log("✅ Wallet Routes loaded successfully");
@@ -22,7 +24,12 @@ router.post("/exchange", auth, exchangeGoldForCrystals);
 router.post("/tests/unlock", auth, unlockTest);
 router.get("/tests/:testId/status", auth, checkTestUnlocked);
 
-// --- NEW GOOGLE PLAY ROUTE ---
+// Google Play Route
 router.post("/google-play/verify", auth, verifyGooglePlayPurchase);
+
+// --- NEW SECURE DAILY BONUS ROUTES ---
+// Make sure these match the URLs requested in your Flutter WalletService
+router.get("/daily-bonus/status", auth, getDailyBonusStatus);
+router.post("/daily-bonus/claim", auth, claimDailyBonus);
 
 module.exports = router;

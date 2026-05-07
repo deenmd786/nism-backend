@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   photoUrl: { type: String },
-  password: { type: String }, // For email/password auth if needed
+  password: { type: String }, 
   
   // Coin System
   gold: { type: Number, default: 0 },
@@ -13,16 +13,29 @@ const userSchema = new mongoose.Schema({
   
   // Track which tests are unlocked
   unlockedTests: [{ 
-    testId: String,        // e.g., "series1_test_1"
+    testId: String,        
     unlockedAt: { type: Date, default: Date.now }
   }],
   
-  // ✅ SECURITY: Store successful payment IDs so users can't reuse them
-// Add this inside your UserSchema
-processedPayments: {
-  type: [String],
-  default: []
-}
+  // Security: Store successful payment IDs
+  processedPayments: {
+    type: [String],
+    default: []
+  },
+
+  // ✅ NEW: Unique referral code for the user to share
+  referralCode: { 
+    type: String, 
+    unique: true, 
+    sparse: true // sparse allows it to be null/missing for old users until they login
+  },
+
+  // ✅ NEW: Timestamp to track the Daily Bonus securely
+  lastDailyClaim: { 
+    type: Date, 
+    default: null 
+  }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
