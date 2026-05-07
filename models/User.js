@@ -18,8 +18,11 @@ const userSchema = new mongoose.Schema({
   }],
   
   // ✅ SECURITY: Store successful payment IDs so users can't reuse them
-  processedPayments: [{ type: String }] 
-
+// Add this inside your UserSchema
+processedPayments: {
+  type: [String],
+  default: []
+}
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);

@@ -1,4 +1,12 @@
 const User = require("../models/User");
+const { google } = require('googleapis');
+
+// Google Play Auth Setup
+const auth = new google.auth.GoogleAuth({
+  keyFile: './service-account.json', 
+  scopes: ['https://www.googleapis.com/auth/androidpublisher']
+});
+const androidPublisher = google.androidpublisher({ version: 'v3', auth });
 
 // 1. Get Wallet Data (Added referral code and daily bonus info)
 const getWalletData = async (req, res) => {
@@ -108,6 +116,7 @@ const claimDailyBonus = async (req, res) => {
 // EXISTING LOGIC (Exchanges & Tests)
 // ==========================================
 
+// 3. Exchange Gold for Crystals (500 Gold = 1 Crystal)
 const exchangeGoldForCrystals = async (req, res) => {
   try {
     const { goldAmount } = req.body;
@@ -134,6 +143,7 @@ const exchangeGoldForCrystals = async (req, res) => {
   }
 };
 
+// 4. Unlock Test
 const unlockTest = async (req, res) => {
   try {
     const { testId } = req.body;
@@ -160,6 +170,7 @@ const unlockTest = async (req, res) => {
   }
 };
 
+// 5. Check Test Unlocked
 const checkTestUnlocked = async (req, res) => {
   try {
     const { testId } = req.params;
@@ -174,11 +185,12 @@ const checkTestUnlocked = async (req, res) => {
   }
 };
 
-// 6. Verify Google Play Purchase
+// --- NEW GOOGLE PLAY VERIFICATION ---
 const verifyGooglePlayPurchase = async (req, res) => {
   try {
-    const { productId, purchaseToken, orderId, crystalReward } = req.body; // Changed from goldReward to crystalReward
+    const { productId, purchaseToken, orderId, crystalReward } = req.body;
 
+    // Make sure we received the required data from Flutter
     if (!orderId || !purchaseToken || !productId) {
       return res.status(400).json({ success: false, message: "Missing purchase data" });
     }
@@ -186,14 +198,36 @@ const verifyGooglePlayPurchase = async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // 🔴 SECURITY CHECK 1: Prevent "Replay Attacks" locally
+    // If we have seen this exact order ID before, block it!
     if (user.processedPayments && user.processedPayments.includes(orderId)) {
       return res.status(400).json({ success: false, message: "Reward already claimed for this purchase." });
     }
 
-    // Give Crystals, not Gold!
+    // 🔴 SECURITY CHECK 2: Ask Google if the purchase is actually real!
+    let purchaseReceipt;
+    try {
+      const response = await androidPublisher.purchases.products.get({
+        packageName: 'com.digroz.learning',
+        productId: productId,
+        token: purchaseToken
+      });
+      purchaseReceipt = response.data;
+    } catch (googleError) {
+      console.error("Failed to verify token with Google:", googleError.message);
+      return res.status(400).json({ success: false, message: "Invalid purchase token from Google." });
+    }
+
+    // purchaseState 0 means "Purchased". 1 means "Canceled". 2 means "Pending".
+    if (purchaseReceipt.purchaseState !== 0) {
+      return res.status(400).json({ success: false, message: "Purchase is not in a completed state." });
+    }
+
+    // 🟢 SUCCESS: Google confirmed it is real! Give the user their crystals.
     const rewardAmount = parseInt(crystalReward) || 0;
     user.crystals = (user.crystals || 0) + rewardAmount;
     
+    // Save the orderId into the array so it can NEVER be used again
     if (!user.processedPayments) user.processedPayments = [];
     user.processedPayments.push(orderId);
 
@@ -203,7 +237,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
       success: true, 
       gold: user.gold, 
       crystals: user.crystals, 
-      message: `Successfully added ${rewardAmount} crystals!` 
+      message: `Payment Verified! Successfully added ${rewardAmount} crystals!` 
     });
 
   } catch (error) {
@@ -220,6 +254,6 @@ module.exports = {
   unlockTest,
   checkTestUnlocked,
   verifyGooglePlayPurchase,
-  getDailyBonusStatus, // NEW
-  claimDailyBonus      // NEW
+  getDailyBonusStatus, 
+  claimDailyBonus      
 };
