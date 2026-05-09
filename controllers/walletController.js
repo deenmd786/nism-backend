@@ -1,12 +1,17 @@
 const User = require("../models/User");
 const { google } = require('googleapis');
 
-// Google Play Auth Setup
+// 1. Grab the key and make sure it exists
+let rawPrivateKey = process.env.GOOGLE_PRIVATE_KEY || "";
+
+// 2. CLEANUP: Remove any accidental double quotes, then fix the line breaks
+const cleanPrivateKey = rawPrivateKey.replace(/"/g, '').replace(/\\n/g, '\n');
+
+// 3. Google Play Auth Setup
 const auth = new google.auth.GoogleAuth({
     credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        // The .replace fix is necessary for Vercel to read private key newlines correctly
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        private_key: cleanPrivateKey,
         project_id: process.env.GOOGLE_PROJECT_ID,
     },
     scopes: ['https://www.googleapis.com/auth/androidpublisher']
