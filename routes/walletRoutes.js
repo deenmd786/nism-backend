@@ -32,6 +32,6 @@ router.post("/google-play/verify", auth, verifyGooglePlayPurchase);
 // Make sure these match the URLs requested in your Flutter WalletService
 router.get("/daily-bonus/status", auth, getDailyBonusStatus);
 router.post("/daily-bonus/claim", auth, claimDailyBonus);
-router.post('/claim-referral', verifyToken, claimReferralCode);
+router.post('/claim-referral', auth, claimReferralCode);
 
 module.exports = router;

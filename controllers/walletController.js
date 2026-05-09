@@ -3,9 +3,15 @@ const { google } = require('googleapis');
 
 // Google Play Auth Setup
 const auth = new google.auth.GoogleAuth({
-    keyFile: './nism-exam-prep-07-37fafc0a57d5.json',
+    credentials: {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        // The .replace fix is necessary for Vercel to read private key newlines correctly
+        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        project_id: process.env.GOOGLE_PROJECT_ID,
+    },
     scopes: ['https://www.googleapis.com/auth/androidpublisher']
 });
+
 const androidPublisher = google.androidpublisher({ version: 'v3', auth });
 
 // 🛡️ SECURE REWARD MAP (Matches your Flutter Product IDs)
