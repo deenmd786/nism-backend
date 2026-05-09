@@ -21,14 +21,16 @@ const androidPublisher = google.androidpublisher({ version: 'v3', auth });
 
 // 🛡️ SECURE REWARD MAP (Matches your Flutter Product IDs)
 const CRYSTAL_REWARDS = {
-    'crystal_pack_49': 7,    // Example: 50 crystals for the 49 pack
-    'crystal_pack_99': 17,   // Example amounts - adjust to your actual shop rates
+    'crystal_pack_49': 7,    
+    'crystal_pack_99': 17,   
     'crystal_pack_149': 27,
     'crystal_pack_249': 48,
     'crystal_pack_499': 100
 };
 
+// ==========================================
 // 1. Get Wallet Data
+// ==========================================
 const getWalletData = async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('gold crystals unlockedTests referralCode hasClaimedReferral');
@@ -52,7 +54,9 @@ const getWalletData = async (req, res) => {
     }
 };
 
+// ==========================================
 // 2. Add Gold (Ads only)
+// ==========================================
 const addGold = async (req, res) => {
     try {
         const { amount } = req.body;
@@ -70,7 +74,9 @@ const addGold = async (req, res) => {
     }
 };
 
+// ==========================================
 // --- DAILY BONUS LOGIC ---
+// ==========================================
 const getDailyBonusStatus = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
@@ -114,7 +120,9 @@ const claimDailyBonus = async (req, res) => {
     }
 };
 
+// ==========================================
 // --- EXCHANGES & TESTS ---
+// ==========================================
 const exchangeGoldForCrystals = async (req, res) => {
     try {
         const { goldAmount } = req.body;
@@ -221,30 +229,40 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Reward already claimed or user not found" });
         }
 
-        // 6. CONSUME PURCHASE: Tell Google the item is delivered so they don't refund it
+        // 6. ACKNOWLEDGE PURCHASE (Replaces .consume)
+        // If not acknowledged, Google refunds the user after 3 days.
         try {
-            await androidPublisher.purchases.products.consume({
+            await androidPublisher.purchases.products.acknowledge({
                 packageName: 'com.digroz.learning',
                 productId: productId,
-                token: purchaseToken
+                token: purchaseToken,
             });
-        } catch (consumeErr) {
-            console.warn("Consume failed (might be already consumed):", consumeErr.message);
+            console.log(`Purchase ${purchaseToken} acknowledged successfully.`);
+        } catch (ackErr) {
+            console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
         }
 
+        // 7. RETURN SUCCESS TO CLIENT
         res.json({ 
             success: true, 
             crystals: updatedUser.crystals, // Return the exact new total from the DB
             message: `Success! Added ${rewardAmount} crystals.` 
         });
 
-    } catch (error) {
-        console.error("Payment error:", error);
-        res.status(500).json({ message: "Internal server error" });
+    } catch (err) {
+        // Detailed error logging for backend debugging
+        console.error("Google API Detail:", err.response?.data || err.message);
+        return res.status(400).json({ 
+            success: false, 
+            message: "Google verification failed",
+            detail: err.response?.data?.error?.message // Optional: send to frontend for debugging
+        });
     }
 };
 
+// ==========================================
 // --- REFERRAL SYSTEM ---
+// ==========================================
 const claimReferralCode = async (req, res) => {
     try {
         const { code } = req.body;
