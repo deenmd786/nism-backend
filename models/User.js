@@ -29,6 +29,15 @@ const userSchema = new mongoose.Schema({
     unique: true, 
     sparse: true // sparse allows it to be null/missing for old users until they login
   },
+  // ✅ NEW: Track if the user has already claimed a referral code
+  hasClaimedReferral: { 
+    type: Boolean, 
+    default: false 
+  },
+  referredBy: {
+    type: String, // Store the ID of the person who referred them (optional but good for tracking)
+    default: null
+  },
 
   // ✅ NEW: Timestamp to track the Daily Bonus securely
   lastDailyClaim: { 

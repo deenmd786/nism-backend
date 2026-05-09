@@ -11,7 +11,8 @@ const androidPublisher = google.androidpublisher({ version: 'v3', auth });
 // 1. Get Wallet Data (Added referral code and daily bonus info)
 const getWalletData = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('gold crystals unlockedTests referralCode');
+const user = await User.findById(req.user.id).select('gold crystals unlockedTests referralCode hasClaimedReferral');
+
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Generate a referral code if the user doesn't have one yet
@@ -24,7 +25,8 @@ const getWalletData = async (req, res) => {
       gold: user.gold || 0,
       crystals: user.crystals || 0,
       unlockedTests: user.unlockedTests ? user.unlockedTests.map(t => t.testId) : [],
-      referralCode: user.referralCode
+      referralCode: user.referralCode,
+      hasClaimedReferral: user.hasClaimedReferral || false
     });
   } catch (error) {
     console.error("Get wallet error:", error);
@@ -200,7 +202,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
 
     // 🔴 SECURITY CHECK 1: Prevent "Replay Attacks" locally
     // If we have seen this exact order ID before, block it!
-    if (user.processedPayments && user.processedPayments.includes(orderId)) {
+   if (user.processedPayments && user.processedPayments.includes(purchaseToken)) {
       return res.status(400).json({ success: false, message: "Reward already claimed for this purchase." });
     }
 
@@ -229,7 +231,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
     
     // Save the orderId into the array so it can NEVER be used again
     if (!user.processedPayments) user.processedPayments = [];
-    user.processedPayments.push(orderId);
+    user.processedPayments.push(purchaseToken);
 
     await user.save();
     
@@ -246,6 +248,57 @@ const verifyGooglePlayPurchase = async (req, res) => {
   }
 };
 
+// ==========================================
+// 🛡️ NEW: REFERRAL SYSTEM LOGIC
+// ==========================================
+
+const claimReferralCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: "Referral code is required" });
+
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) return res.status(404).json({ message: "User not found" });
+
+    // 1. Check if they already claimed a code
+    if (currentUser.hasClaimedReferral) {
+      return res.status(400).json({ success: false, message: "You have already claimed a referral code." });
+    }
+
+    // 2. Prevent using their own code
+    if (currentUser.referralCode === code) {
+      return res.status(400).json({ success: false, message: "You cannot use your own referral code." });
+    }
+
+    // 3. Find the referrer
+    const referrer = await User.findOne({ referralCode: code });
+    if (!referrer) {
+      return res.status(404).json({ success: false, message: "Invalid referral code." });
+    }
+
+    // 4. Reward the Current User (Referee) - 100 Gold
+    currentUser.gold = (currentUser.gold || 0) + 100;
+    currentUser.hasClaimedReferral = true;
+    currentUser.referredBy = referrer._id.toString();
+
+    // 5. Reward the Referrer - 200 Gold
+    referrer.gold = (referrer.gold || 0) + 200;
+
+    // Save both users
+    await Promise.all([currentUser.save(), referrer.save()]);
+
+    res.json({ 
+      success: true, 
+      gold: currentUser.gold, 
+      message: "Referral claimed! You received 100 Gold." 
+    });
+
+  } catch (error) {
+    console.error("Claim referral error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 // EXPORT ALL
 module.exports = {
   getWalletData,
@@ -255,5 +308,6 @@ module.exports = {
   checkTestUnlocked,
   verifyGooglePlayPurchase,
   getDailyBonusStatus, 
-  claimDailyBonus      
+  claimDailyBonus,
+  claimReferralCode      
 };
