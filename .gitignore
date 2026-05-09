@@ -40,3 +40,7 @@ coverage/
 # 7. Build outputs (If you add TypeScript later)
 dist/
 build/
+
+*.json
+# Or specifically:
+nism-exam-prep-*.json

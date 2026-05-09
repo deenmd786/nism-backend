@@ -3,7 +3,7 @@ const { google } = require('googleapis');
 
 // Google Play Auth Setup
 const auth = new google.auth.GoogleAuth({
-    keyFile: './service-account.json',
+    keyFile: './nism-exam-prep-07-37fafc0a57d5.json',
     scopes: ['https://www.googleapis.com/auth/androidpublisher']
 });
 const androidPublisher = google.androidpublisher({ version: 'v3', auth });
@@ -166,7 +166,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // 1. REPLAY PROTECTION: Check if token already used
+        // 1. EARLY REPLAY PROTECTION: Check if token already used (Saves Google API Call)
         if (user.processedPayments && user.processedPayments.includes(purchaseToken)) {
             return res.status(400).json({ success: false, message: "Reward already claimed." });
         }
@@ -190,18 +190,25 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Purchase incomplete" });
         }
 
-        // 4. SECURE REWARD: Get amount from our SERVER map (Ignore req.body.crystalReward)
+        // 4. SECURE REWARD: Get amount from our SERVER map
         const rewardAmount = CRYSTAL_REWARDS[productId];
         if (!rewardAmount) {
             return res.status(400).json({ success: false, message: "Invalid Product ID" });
         }
 
-        // 5. UPDATE USER
-        user.crystals = (user.crystals || 0) + rewardAmount;
-        if (!user.processedPayments) user.processedPayments = [];
-        user.processedPayments.push(purchaseToken);
-        
-        await user.save();
+        // 5. ATOMIC UPDATE USER (Prevents Race Conditions)
+        const updatedUser = await User.findOneAndUpdate(
+            { _id: req.user.id, processedPayments: { $ne: purchaseToken } }, // Only update if token NOT in array
+            { 
+                $inc: { crystals: rewardAmount },
+                $push: { processedPayments: purchaseToken }
+            },
+            { new: true } // Returns the newly updated document
+        );
+
+        if (!updatedUser) {
+            return res.status(400).json({ success: false, message: "Reward already claimed or user not found" });
+        }
 
         // 6. CONSUME PURCHASE: Tell Google the item is delivered so they don't refund it
         try {
@@ -216,7 +223,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
 
         res.json({ 
             success: true, 
-            crystals: user.crystals, 
+            crystals: updatedUser.crystals, // Return the exact new total from the DB
             message: `Success! Added ${rewardAmount} crystals.` 
         });
 
