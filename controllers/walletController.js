@@ -1,19 +1,19 @@
 const User = require("../models/User");
 const { google } = require('googleapis');
 
-// 1. Grab the key and make sure it exists
-let rawPrivateKey = process.env.GOOGLE_PRIVATE_KEY || "";
+// ==========================================
+// 🛡️ GOOGLE PLAY AUTHENTICATION (PRODUCTION)
+// ==========================================
+if (!process.env.GOOGLE_BASE64_CREDENTIALS) {
+    console.error("FATAL ERROR: GOOGLE_BASE64_CREDENTIALS environment variable is missing.");
+    // In production, you want to know immediately if auth is missing
+}
 
-// 2. CLEANUP: Remove any accidental double quotes, then fix the line breaks
-const cleanPrivateKey = rawPrivateKey.replace(/"/g, '').replace(/\\n/g, '\n');
+// Decode the Base64 string from environment variables
+const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_BASE64_CREDENTIALS || '', 'base64').toString('utf-8'));
 
-// 3. Google Play Auth Setup
 const auth = new google.auth.GoogleAuth({
-    credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: cleanPrivateKey,
-        project_id: process.env.GOOGLE_PROJECT_ID,
-    },
+    credentials: credentials,
     scopes: ['https://www.googleapis.com/auth/androidpublisher']
 });
 
@@ -172,7 +172,7 @@ const checkTestUnlocked = async (req, res) => {
 };
 
 // ==========================================
-// 🛡️ UPDATED: GOOGLE PLAY VERIFICATION
+// 🛡️ GOOGLE PLAY VERIFICATION
 // ==========================================
 const verifyGooglePlayPurchase = async (req, res) => {
     try {
@@ -185,12 +185,12 @@ const verifyGooglePlayPurchase = async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // 1. EARLY REPLAY PROTECTION: Check if token already used (Saves Google API Call)
+        // 1. EARLY REPLAY PROTECTION
         if (user.processedPayments && user.processedPayments.includes(purchaseToken)) {
             return res.status(400).json({ success: false, message: "Reward already claimed." });
         }
 
-        // 2. GOOGLE VERIFICATION: Validate with Google Servers
+        // 2. GOOGLE VERIFICATION
         let purchaseReceipt;
         try {
             const response = await androidPublisher.purchases.products.get({
@@ -209,28 +209,27 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Purchase incomplete" });
         }
 
-        // 4. SECURE REWARD: Get amount from our SERVER map
+        // 4. SECURE REWARD
         const rewardAmount = CRYSTAL_REWARDS[productId];
         if (!rewardAmount) {
             return res.status(400).json({ success: false, message: "Invalid Product ID" });
         }
 
-        // 5. ATOMIC UPDATE USER (Prevents Race Conditions)
+        // 5. ATOMIC UPDATE USER
         const updatedUser = await User.findOneAndUpdate(
-            { _id: req.user.id, processedPayments: { $ne: purchaseToken } }, // Only update if token NOT in array
+            { _id: req.user.id, processedPayments: { $ne: purchaseToken } },
             { 
                 $inc: { crystals: rewardAmount },
                 $push: { processedPayments: purchaseToken }
             },
-            { new: true } // Returns the newly updated document
+            { new: true }
         );
 
         if (!updatedUser) {
             return res.status(400).json({ success: false, message: "Reward already claimed or user not found" });
         }
 
-        // 6. ACKNOWLEDGE PURCHASE (Replaces .consume)
-        // If not acknowledged, Google refunds the user after 3 days.
+        // 6. ACKNOWLEDGE PURCHASE
         try {
             await androidPublisher.purchases.products.acknowledge({
                 packageName: 'com.digroz.learning',
@@ -242,20 +241,19 @@ const verifyGooglePlayPurchase = async (req, res) => {
             console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
         }
 
-        // 7. RETURN SUCCESS TO CLIENT
+        // 7. RETURN SUCCESS
         res.json({ 
             success: true, 
-            crystals: updatedUser.crystals, // Return the exact new total from the DB
+            crystals: updatedUser.crystals,
             message: `Success! Added ${rewardAmount} crystals.` 
         });
 
     } catch (err) {
-        // Detailed error logging for backend debugging
         console.error("Google API Detail:", err.response?.data || err.message);
         return res.status(400).json({ 
             success: false, 
             message: "Google verification failed",
-            detail: err.response?.data?.error?.message // Optional: send to frontend for debugging
+            detail: err.response?.data?.error?.message
         });
     }
 };
