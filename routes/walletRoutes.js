@@ -11,9 +11,10 @@ const {
   unlockTest,
   checkTestUnlocked,
   verifyGooglePlayPurchase,
-  getDailyBonusStatus, // <-- IMPORTED NEW METHOD
-  claimDailyBonus,      // <-- IMPORTED NEW METHOD
-  claimReferralCode
+  getDailyBonusStatus,
+  claimDailyBonus,
+  claimReferralCode,
+  removeAds // ✅ 1. Added removeAds import here
 } = require("../controllers/walletController");
 
 console.log("✅ Wallet Routes loaded successfully");
@@ -28,10 +29,12 @@ router.get("/tests/:testId/status", auth, checkTestUnlocked);
 // Google Play Route
 router.post("/google-play/verify", auth, verifyGooglePlayPurchase);
 
-// --- NEW SECURE DAILY BONUS ROUTES ---
-// Make sure these match the URLs requested in your Flutter WalletService
+// --- DAILY BONUS ROUTES ---
 router.get("/daily-bonus/status", auth, getDailyBonusStatus);
 router.post("/daily-bonus/claim", auth, claimDailyBonus);
 router.post('/claim-referral', auth, claimReferralCode);
+
+// --- REMOVE ADS ROUTE ---
+router.post("/remove-ads", auth, removeAds); // ✅ 2. Changed verifyToken to auth
 
 module.exports = router;
