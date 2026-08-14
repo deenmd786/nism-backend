@@ -75,26 +75,30 @@ const removeAds = async (req, res) => {
         // --- SECURE SERVER-SIDE PRICING LOGIC ---
         const now = new Date();
 
-        // Independence Day offer ends: August 22, 2026 at 23:59:59 (Month 7 is August in JS)
+        // Independence Day offer ends: August 22, 2026 at 23:59:59 (Month 7 = August in JS!)
         const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59);
 
-        let isOfferActive = false;
+        let currentOffer = 'none';
 
         if (now <= independenceDayEnd) {
-            isOfferActive = true;
-        } else if (now.getDay() === 6 && now.getHours() >= 18) {
-            // Saturday Night offer active (Saturday between 18:00 and 23:59)
-            isOfferActive = true;
+            currentOffer = 'independence';
+        } else if (now.getDay() === 6 || (now.getDay() === 0 && now.getHours() < 12)) {
+            // Saturday (all day, day 6) OR Sunday (before 12 PM, day 0)
+            currentOffer = 'weekend';
         }
 
         let cost = 0;
         let monthsToAdd = 0;
 
         if (plan === '1_month') {
-            cost = isOfferActive ? 5 : 10;
+            if (currentOffer === 'independence') cost = 5;
+            else if (currentOffer === 'weekend') cost = 7;
+            else cost = 10;
             monthsToAdd = 1;
         } else if (plan === '1_year') {
-            cost = isOfferActive ? 20 : 50;
+            if (currentOffer === 'independence') cost = 20;
+            else if (currentOffer === 'weekend') cost = 40;
+            else cost = 120;
             monthsToAdd = 12;
         } else {
             return res.status(400).json({ message: "Invalid plan selected" });
@@ -117,12 +121,12 @@ const removeAds = async (req, res) => {
 
         await user.save();
 
-        // ✅ Send Background Email (No await)
+        // ✅ Send Background Email 
         if (user.email) {
             await sendEmailNotification(
                 user.email,
                 "🚫 Ad-Free Activated!",
-                adBlockerTemplate(user.name || 'Student') // 👇 USING YOUR TEMPLATE
+                adBlockerTemplate(user.name || 'Student')
             );
         }
 
