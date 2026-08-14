@@ -41,6 +41,5 @@ coverage/
 dist/
 build/
 
-*.json
-# Or specifically:
+# 8. Secret Keys (DO NOT REMOVE - Protects Firebase/Google credentials)
 nism-exam-prep-*.json
