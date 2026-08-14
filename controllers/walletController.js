@@ -119,7 +119,7 @@ const removeAds = async (req, res) => {
 
         // ✅ Send Background Email (No await)
         if (user.email) {
-            sendEmailNotification(
+            await sendEmailNotification(
                 user.email,
                 "🚫 Ad-Free Activated!",
                 adBlockerTemplate(user.name || 'Student') // 👇 USING YOUR TEMPLATE
@@ -205,7 +205,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
 
         // ✅ Send Background Email (No await)
         if (updatedUser.email) {
-            sendEmailNotification(
+            await sendEmailNotification(
                 updatedUser.email,
                 "💎 Crystal Purchase Successful!",
                 crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount) // 👇 USING YOUR TEMPLATE
