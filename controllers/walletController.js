@@ -1,9 +1,6 @@
 const User = require("../models/User");
 const { google } = require('googleapis');
 
-// ✅ Import your email tools at the top
-const { sendEmailNotification } = require('../utils/emailSender'); // Adjust path if needed
-const { crystalPurchaseTemplate, adBlockerTemplate } = require('../utils/emailTemplates');
 
 // ==========================================
 // 🛡️ GOOGLE PLAY AUTHENTICATION (PRODUCTION)
@@ -119,10 +116,6 @@ const removeAds = async (req, res) => {
         user.adsRemovedUntil = newExpiry;
 
         await user.save();
-
-        // ✅ Send the Ad-Free Welcome Email
-        const emailHtml = adBlockerTemplate(user.name || 'Student');
-        await sendEmailNotification(user.email, "You are now Ad-Free! - Digroz Learning", emailHtml);
 
         res.json({ success: true, crystals: user.crystals, hasRemovedAds: true, expiry: user.adsRemovedUntil });
     } catch (error) {
@@ -297,10 +290,6 @@ const verifyGooglePlayPurchase = async (req, res) => {
         } catch (ackErr) {
             console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
         }
-
-        // ✅ Send the Crystal Purchase Confirmation Email
-        const emailHtml = crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount);
-        await sendEmailNotification(updatedUser.email, "Your Crystals are Ready! - Digroz Learning", emailHtml);
 
         // 7. RETURN SUCCESS
         res.json({
