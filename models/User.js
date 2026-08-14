@@ -47,7 +47,6 @@ const userSchema = new mongoose.Schema({
     default: null
   },
 
-  // ✅ NEW: Timestamp to track when the ad-free subscription expires
   adsRemovedUntil: {
     type: Date,
     default: null

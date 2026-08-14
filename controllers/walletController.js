@@ -317,8 +317,22 @@ const claimReferralCode = async (req, res) => {
     }
 };
 
+const addGold = async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const user = await User.findById(req.user.id);
+
+        user.gold = (user.gold || 0) + amount;
+        await user.save();
+
+        res.json({ success: true, gold: user.gold });
+    } catch (error) {
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
-    getWalletData, exchangeGoldForCrystals, unlockTest,
+    getWalletData, addGold, exchangeGoldForCrystals, unlockTest,
     checkTestUnlocked, verifyGooglePlayPurchase, getDailyBonusStatus,
     claimDailyBonus, claimReferralCode, removeAds
 };
