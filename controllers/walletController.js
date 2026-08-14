@@ -1,17 +1,19 @@
 const User = require("../models/User");
 const { google } = require('googleapis');
-
+const { sendEmailNotification } = require('../services/emailService'); // ✅ Email Service Imported
+const { crystalPurchaseTemplate, adBlockerTemplate } = require('../utils/emailTemplates');
 
 // ==========================================
 // 🛡️ GOOGLE PLAY AUTHENTICATION (PRODUCTION)
 // ==========================================
 if (!process.env.GOOGLE_BASE64_CREDENTIALS) {
     console.error("FATAL ERROR: GOOGLE_BASE64_CREDENTIALS environment variable is missing.");
-    // In production, you want to know immediately if auth is missing
 }
 
 // Decode the Base64 string from environment variables
-const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_BASE64_CREDENTIALS || '', 'base64').toString('utf-8'));
+const credentials = process.env.GOOGLE_BASE64_CREDENTIALS
+    ? JSON.parse(Buffer.from(process.env.GOOGLE_BASE64_CREDENTIALS, 'base64').toString('utf-8'))
+    : {};
 
 const auth = new google.auth.GoogleAuth({
     credentials: credentials,
@@ -42,6 +44,7 @@ const getWalletData = async (req, res) => {
             await user.save();
         }
 
+        // Check if the adsRemovedUntil date is in the future
         const now = new Date();
         const hasRemovedAds = user.adsRemovedUntil ? user.adsRemovedUntil > now : false;
 
@@ -52,7 +55,7 @@ const getWalletData = async (req, res) => {
             referralCode: user.referralCode,
             hasClaimedReferral: user.hasClaimedReferral || false,
             hasRemovedAds: hasRemovedAds,
-            adsRemovedUntil: user.adsRemovedUntil // ✅ Added this so Flutter can show the timer!
+            adsRemovedUntil: user.adsRemovedUntil // ✅ Sent to Flutter for countdown timer
         });
     } catch (error) {
         console.error("Get wallet error:", error);
@@ -61,7 +64,7 @@ const getWalletData = async (req, res) => {
 };
 
 // ==========================================
-// 2. Remove Ads (Dynamic Pricing & Offers)
+// 2. Remove Ads (Dynamic Pricing & Email)
 // ==========================================
 const removeAds = async (req, res) => {
     try {
@@ -72,18 +75,15 @@ const removeAds = async (req, res) => {
         // --- SECURE SERVER-SIDE PRICING LOGIC ---
         const now = new Date();
 
-        // Note: JavaScript months are 0-indexed. August is month 7.
-        // Independence Day offer ends: August 22, 2026 at 23:59:59
+        // Independence Day offer ends: August 22, 2026 at 23:59:59 (Month 7 is August in JS)
         const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59);
 
         let isOfferActive = false;
 
-        // Check if Independence Day offer is active (Before Aug 22, 2026)
         if (now <= independenceDayEnd) {
             isOfferActive = true;
-        }
-        // Check if Saturday Night offer is active (Saturday between 18:00 and 23:59)
-        else if (now.getDay() === 6 && now.getHours() >= 18) {
+        } else if (now.getDay() === 6 && now.getHours() >= 18) {
+            // Saturday Night offer active (Saturday between 18:00 and 23:59)
             isOfferActive = true;
         }
 
@@ -91,10 +91,10 @@ const removeAds = async (req, res) => {
         let monthsToAdd = 0;
 
         if (plan === '1_month') {
-            cost = isOfferActive ? 5 : 10;   // 10 normally, 5 on offer
+            cost = isOfferActive ? 5 : 10;
             monthsToAdd = 1;
         } else if (plan === '1_year') {
-            cost = isOfferActive ? 20 : 50;  // 50 normally, 20 on offer
+            cost = isOfferActive ? 20 : 50;
             monthsToAdd = 12;
         } else {
             return res.status(400).json({ message: "Invalid plan selected" });
@@ -117,10 +117,115 @@ const removeAds = async (req, res) => {
 
         await user.save();
 
+        // ✅ Send Background Email (No await)
+        if (user.email) {
+            sendEmailNotification(
+                user.email,
+                "🚫 Ad-Free Activated!",
+                adBlockerTemplate(user.name || 'Student') // 👇 USING YOUR TEMPLATE
+            );
+        }
+
         res.json({ success: true, crystals: user.crystals, hasRemovedAds: true, expiry: user.adsRemovedUntil });
     } catch (error) {
         console.error("Remove ads error:", error);
         res.status(500).json({ message: "Server error" });
+    }
+};
+
+// ==========================================
+// 🛡️ GOOGLE PLAY VERIFICATION (With Email)
+// ==========================================
+const verifyGooglePlayPurchase = async (req, res) => {
+    try {
+        const { productId, purchaseToken } = req.body;
+
+        if (!purchaseToken || !productId) {
+            return res.status(400).json({ success: false, message: "Missing purchase data" });
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        // 1. EARLY REPLAY PROTECTION
+        if (user.processedPayments && user.processedPayments.includes(purchaseToken)) {
+            return res.status(400).json({ success: false, message: "Reward already claimed." });
+        }
+
+        // 2. GOOGLE VERIFICATION
+        let purchaseReceipt;
+        try {
+            const response = await androidPublisher.purchases.products.get({
+                packageName: 'com.digroz.learning',
+                productId: productId,
+                token: purchaseToken
+            });
+            purchaseReceipt = response.data;
+        } catch (err) {
+            console.error("Google Auth Error:", err.message);
+            return res.status(400).json({ success: false, message: "Invalid token" });
+        }
+
+        // 3. PURCHASE STATE: 0 = Purchased
+        if (purchaseReceipt.purchaseState !== 0) {
+            return res.status(400).json({ success: false, message: "Purchase incomplete" });
+        }
+
+        // 4. SECURE REWARD
+        const rewardAmount = CRYSTAL_REWARDS[productId];
+        if (!rewardAmount) {
+            return res.status(400).json({ success: false, message: "Invalid Product ID" });
+        }
+
+        // 5. ATOMIC UPDATE USER
+        const updatedUser = await User.findOneAndUpdate(
+            { _id: req.user.id, processedPayments: { $ne: purchaseToken } },
+            {
+                $inc: { crystals: rewardAmount },
+                $push: { processedPayments: purchaseToken }
+            },
+            { new: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(400).json({ success: false, message: "Reward already claimed or user not found" });
+        }
+
+        // 6. ACKNOWLEDGE PURCHASE
+        try {
+            await androidPublisher.purchases.products.acknowledge({
+                packageName: 'com.digroz.learning',
+                productId: productId,
+                token: purchaseToken,
+            });
+            console.log(`Purchase ${purchaseToken} acknowledged successfully.`);
+        } catch (ackErr) {
+            console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
+        }
+
+        // ✅ Send Background Email (No await)
+        if (updatedUser.email) {
+            sendEmailNotification(
+                updatedUser.email,
+                "💎 Crystal Purchase Successful!",
+                crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount) // 👇 USING YOUR TEMPLATE
+            );
+        }
+
+        // 7. RETURN SUCCESS
+        res.json({
+            success: true,
+            crystals: updatedUser.crystals,
+            message: `Success! Added ${rewardAmount} crystals.`
+        });
+
+    } catch (err) {
+        console.error("Google API Detail:", err.response?.data || err.message);
+        return res.status(400).json({
+            success: false,
+            message: "Google verification failed",
+            detail: err.response?.data?.error?.message
+        });
     }
 };
 
@@ -218,93 +323,6 @@ const checkTestUnlocked = async (req, res) => {
         res.json({ unlocked: isUnlocked });
     } catch (error) {
         res.status(500).json({ message: "Check error" });
-    }
-};
-
-// ==========================================
-// 🛡️ GOOGLE PLAY VERIFICATION
-// ==========================================
-const verifyGooglePlayPurchase = async (req, res) => {
-    try {
-        const { productId, purchaseToken } = req.body;
-
-        if (!purchaseToken || !productId) {
-            return res.status(400).json({ success: false, message: "Missing purchase data" });
-        }
-
-        const user = await User.findById(req.user.id);
-        if (!user) return res.status(404).json({ message: "User not found" });
-
-        // 1. EARLY REPLAY PROTECTION
-        if (user.processedPayments && user.processedPayments.includes(purchaseToken)) {
-            return res.status(400).json({ success: false, message: "Reward already claimed." });
-        }
-
-        // 2. GOOGLE VERIFICATION
-        let purchaseReceipt;
-        try {
-            const response = await androidPublisher.purchases.products.get({
-                packageName: 'com.digroz.learning',
-                productId: productId,
-                token: purchaseToken
-            });
-            purchaseReceipt = response.data;
-        } catch (err) {
-            console.error("Google Auth Error:", err.message);
-            return res.status(400).json({ success: false, message: "Invalid token" });
-        }
-
-        // 3. PURCHASE STATE: 0 = Purchased
-        if (purchaseReceipt.purchaseState !== 0) {
-            return res.status(400).json({ success: false, message: "Purchase incomplete" });
-        }
-
-        // 4. SECURE REWARD
-        const rewardAmount = CRYSTAL_REWARDS[productId];
-        if (!rewardAmount) {
-            return res.status(400).json({ success: false, message: "Invalid Product ID" });
-        }
-
-        // 5. ATOMIC UPDATE USER
-        const updatedUser = await User.findOneAndUpdate(
-            { _id: req.user.id, processedPayments: { $ne: purchaseToken } },
-            {
-                $inc: { crystals: rewardAmount },
-                $push: { processedPayments: purchaseToken }
-            },
-            { new: true }
-        );
-
-        if (!updatedUser) {
-            return res.status(400).json({ success: false, message: "Reward already claimed or user not found" });
-        }
-
-        // 6. ACKNOWLEDGE PURCHASE
-        try {
-            await androidPublisher.purchases.products.acknowledge({
-                packageName: 'com.digroz.learning',
-                productId: productId,
-                token: purchaseToken,
-            });
-            console.log(`Purchase ${purchaseToken} acknowledged successfully.`);
-        } catch (ackErr) {
-            console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
-        }
-
-        // 7. RETURN SUCCESS
-        res.json({
-            success: true,
-            crystals: updatedUser.crystals,
-            message: `Success! Added ${rewardAmount} crystals.`
-        });
-
-    } catch (err) {
-        console.error("Google API Detail:", err.response?.data || err.message);
-        return res.status(400).json({
-            success: false,
-            message: "Google verification failed",
-            detail: err.response?.data?.error?.message
-        });
     }
 };
 
