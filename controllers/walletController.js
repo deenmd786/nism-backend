@@ -33,7 +33,6 @@ const CRYSTAL_REWARDS = {
 // ==========================================
 const getWalletData = async (req, res) => {
     try {
-        // ✅ Changed 'hasRemovedAds' to 'adsRemovedUntil'
         const user = await User.findById(req.user.id).select('gold crystals unlockedTests referralCode hasClaimedReferral adsRemovedUntil');
         if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -42,7 +41,6 @@ const getWalletData = async (req, res) => {
             await user.save();
         }
 
-        // Check if the adsRemovedUntil date is in the future
         const now = new Date();
         const hasRemovedAds = user.adsRemovedUntil ? user.adsRemovedUntil > now : false;
 
@@ -52,7 +50,8 @@ const getWalletData = async (req, res) => {
             unlockedTests: user.unlockedTests ? user.unlockedTests.map(t => t.testId) : [],
             referralCode: user.referralCode,
             hasClaimedReferral: user.hasClaimedReferral || false,
-            hasRemovedAds: hasRemovedAds // ✅ Send true if the subscription is still active
+            hasRemovedAds: hasRemovedAds,
+            adsRemovedUntil: user.adsRemovedUntil // ✅ Added this so Flutter can show the timer!
         });
     } catch (error) {
         console.error("Get wallet error:", error);
