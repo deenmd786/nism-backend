@@ -129,7 +129,7 @@ const removeAds = async (req, res) => {
     }
 };
 
-// ==========================================
+verifyGooglePlayPurchase// ==========================================
 // 🛡️ GOOGLE PLAY VERIFICATION (With Email)
 // ==========================================
 const verifyGooglePlayPurchase = async (req, res) => {
@@ -167,10 +167,20 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Purchase incomplete" });
         }
 
-        // 4. SECURE REWARD
-        const rewardAmount = CRYSTAL_REWARDS[productId];
-        if (!rewardAmount) {
+        // 4. SECURE REWARD & INDEPENDENCE DAY LOGIC
+        const baseRewardAmount = CRYSTAL_REWARDS[productId];
+        if (!baseRewardAmount) {
             return res.status(400).json({ success: false, message: "Invalid Product ID" });
+        }
+
+        // --- 40% EXTRA INDEPENDENCE DAY OFFER ---
+        const now = new Date();
+        const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59); // August 22, 2026
+        let rewardAmount = baseRewardAmount;
+
+        if (now <= independenceDayEnd) {
+            // Add 40% and round to the nearest whole natural number
+            rewardAmount = Math.round(baseRewardAmount * 1.40);
         }
 
         // 5. ATOMIC UPDATE USER
@@ -204,7 +214,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
             await sendEmailNotification(
                 updatedUser.email,
                 "💎 Crystal Purchase Successful!",
-                crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount) // 👇 USING YOUR TEMPLATE
+                crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount)
             );
         }
 
