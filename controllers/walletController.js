@@ -318,7 +318,7 @@ const claimReferralCode = async (req, res) => {
 };
 
 module.exports = {
-    getWalletData, addGold, exchangeGoldForCrystals, unlockTest,
+    getWalletData, exchangeGoldForCrystals, unlockTest,
     checkTestUnlocked, verifyGooglePlayPurchase, getDailyBonusStatus,
     claimDailyBonus, claimReferralCode, removeAds
 };
