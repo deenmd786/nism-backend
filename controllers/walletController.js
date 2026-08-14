@@ -60,22 +60,40 @@ const getWalletData = async (req, res) => {
 };
 
 // ==========================================
-// 2. Remove Ads (Time-Based Subscription)
+// 2. Remove Ads (Dynamic Pricing & Offers)
 // ==========================================
 const removeAds = async (req, res) => {
     try {
-        const { plan } = req.body; // Expecting '1_month' or '1_year'
+        const { plan } = req.body;
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ message: "User not found" });
+
+        // --- SECURE SERVER-SIDE PRICING LOGIC ---
+        const now = new Date();
+
+        // Note: JavaScript months are 0-indexed. August is month 7.
+        // Independence Day offer ends: August 22, 2026 at 23:59:59
+        const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59);
+
+        let isOfferActive = false;
+
+        // Check if Independence Day offer is active (Before Aug 22, 2026)
+        if (now <= independenceDayEnd) {
+            isOfferActive = true;
+        }
+        // Check if Saturday Night offer is active (Saturday between 18:00 and 23:59)
+        else if (now.getDay() === 6 && now.getHours() >= 18) {
+            isOfferActive = true;
+        }
 
         let cost = 0;
         let monthsToAdd = 0;
 
         if (plan === '1_month') {
-            cost = 5;
+            cost = isOfferActive ? 5 : 10;   // 10 normally, 5 on offer
             monthsToAdd = 1;
         } else if (plan === '1_year') {
-            cost = 20;
+            cost = isOfferActive ? 20 : 50;  // 50 normally, 20 on offer
             monthsToAdd = 12;
         } else {
             return res.status(400).json({ message: "Invalid plan selected" });
@@ -88,8 +106,7 @@ const removeAds = async (req, res) => {
         // Deduct crystals
         user.crystals -= cost;
 
-        // Calculate new expiration date (adds to existing time if they renew early)
-        const now = new Date();
+        // Calculate new expiration date
         let newExpiry = user.adsRemovedUntil && user.adsRemovedUntil > now
             ? new Date(user.adsRemovedUntil)
             : new Date();
