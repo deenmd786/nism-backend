@@ -78,27 +78,17 @@ const removeAds = async (req, res) => {
         // Independence Day offer ends: August 22, 2026 at 23:59:59 (Month 7 = August in JS!)
         const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59);
 
-        let currentOffer = 'none';
-
-        if (now <= independenceDayEnd) {
-            currentOffer = 'independence';
-        } else if (now.getDay() === 6 || (now.getDay() === 0 && now.getHours() < 12)) {
-            // Saturday (all day, day 6) OR Sunday (before 12 PM, day 0)
-            currentOffer = 'weekend';
-        }
+        // If it's before Aug 22, give Independence offer. Otherwise, always give Special offer.
+        const currentOffer = (now <= independenceDayEnd) ? 'independence' : 'special';
 
         let cost = 0;
         let monthsToAdd = 0;
 
         if (plan === '1_month') {
-            if (currentOffer === 'independence') cost = 5;
-            else if (currentOffer === 'weekend') cost = 7;
-            else cost = 10;
+            cost = (currentOffer === 'independence') ? 5 : 7;
             monthsToAdd = 1;
         } else if (plan === '1_year') {
-            if (currentOffer === 'independence') cost = 20;
-            else if (currentOffer === 'weekend') cost = 40;
-            else cost = 120;
+            cost = (currentOffer === 'independence') ? 20 : 40;
             monthsToAdd = 12;
         } else {
             return res.status(400).json({ message: "Invalid plan selected" });
@@ -107,6 +97,8 @@ const removeAds = async (req, res) => {
         if ((user.crystals || 0) < cost) {
             return res.status(400).json({ message: "Not enough crystals" });
         }
+
+
 
         // Deduct crystals
         user.crystals -= cost;
