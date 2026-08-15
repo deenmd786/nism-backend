@@ -1,6 +1,6 @@
 const User = require("../models/User");
 const { google } = require('googleapis');
-const { sendEmailNotification } = require('../services/emailService'); // ✅ Email Service Imported
+const { sendEmailNotification } = require('../services/emailService');
 const { crystalPurchaseTemplate, adBlockerTemplate } = require('../utils/emailTemplates');
 
 // ==========================================
@@ -44,7 +44,6 @@ const getWalletData = async (req, res) => {
             await user.save();
         }
 
-        // Check if the adsRemovedUntil date is in the future
         const now = new Date();
         const hasRemovedAds = user.adsRemovedUntil ? user.adsRemovedUntil > now : false;
 
@@ -55,7 +54,7 @@ const getWalletData = async (req, res) => {
             referralCode: user.referralCode,
             hasClaimedReferral: user.hasClaimedReferral || false,
             hasRemovedAds: hasRemovedAds,
-            adsRemovedUntil: user.adsRemovedUntil // ✅ Sent to Flutter for countdown timer
+            adsRemovedUntil: user.adsRemovedUntil
         });
     } catch (error) {
         console.error("Get wallet error:", error);
@@ -72,13 +71,8 @@ const removeAds = async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // --- SECURE SERVER-SIDE PRICING LOGIC ---
         const now = new Date();
-
-        // Independence Day offer ends: August 22, 2026 at 23:59:59 (Month 7 = August in JS!)
-        const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59);
-
-        // If it's before Aug 22, give Independence offer. Otherwise, always give Special offer.
+        const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59); // August 22, 2026
         const currentOffer = (now <= independenceDayEnd) ? 'independence' : 'special';
 
         let cost = 0;
@@ -98,12 +92,8 @@ const removeAds = async (req, res) => {
             return res.status(400).json({ message: "Not enough crystals" });
         }
 
-
-
-        // Deduct crystals
         user.crystals -= cost;
 
-        // Calculate new expiration date
         let newExpiry = user.adsRemovedUntil && user.adsRemovedUntil > now
             ? new Date(user.adsRemovedUntil)
             : new Date();
@@ -113,7 +103,6 @@ const removeAds = async (req, res) => {
 
         await user.save();
 
-        // ✅ Send Background Email 
         if (user.email) {
             await sendEmailNotification(
                 user.email,
@@ -130,7 +119,7 @@ const removeAds = async (req, res) => {
 };
 
 // ==========================================
-// 🛡️ GOOGLE PLAY VERIFICATION (With Email)
+// 🛡️ GOOGLE PLAY VERIFICATION (With Offer Logic)
 // ==========================================
 const verifyGooglePlayPurchase = async (req, res) => {
     try {
@@ -167,12 +156,19 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Purchase incomplete" });
         }
 
-        // --- 🇮🇳 40% EXTRA INDEPENDENCE DAY OFFER ---
+        // 4. GET BASE REWARD
+        const baseRewardAmount = CRYSTAL_REWARDS[productId];
+        if (!baseRewardAmount) {
+            return res.status(400).json({ success: false, message: "Invalid Product ID" });
+        }
+
+        // --- 🇮🇳 40% EXTRA INDEPENDENCE DAY OFFER LOGIC ---
         let rewardAmount = baseRewardAmount;
         const now = new Date();
+        const independenceDayEnd = new Date(2026, 7, 22, 23, 59, 59); // August 22, 2026
 
         if (now <= independenceDayEnd) {
-            // Add 40% and round to the nearest whole natural number
+            // Applies +40% exactly and removes decimals
             rewardAmount = Math.round(baseRewardAmount * 1.40);
         }
 
@@ -180,7 +176,7 @@ const verifyGooglePlayPurchase = async (req, res) => {
         const updatedUser = await User.findOneAndUpdate(
             { _id: req.user.id, processedPayments: { $ne: purchaseToken } },
             {
-                $inc: { crystals: rewardAmount }, // Uses the dynamically calculated amount
+                $inc: { crystals: rewardAmount },
                 $push: { processedPayments: purchaseToken }
             },
             { new: true }
@@ -202,16 +198,17 @@ const verifyGooglePlayPurchase = async (req, res) => {
             console.warn("Acknowledge failed/already acknowledged:", ackErr.message);
         }
 
-        // ✅ Send Background Email (No await)
+        // 7. SEND BACKGROUND EMAIL WITH UPDATED NUMBER
         if (updatedUser.email) {
-            await sendEmailNotification(
+            // Using rewardAmount ensures they see the exact crystals they received!
+            sendEmailNotification(
                 updatedUser.email,
                 "💎 Crystal Purchase Successful!",
-                crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount) // 👇 USING YOUR TEMPLATE
-            );
+                crystalPurchaseTemplate(updatedUser.name || 'Student', rewardAmount)
+            ).catch(err => console.error("Email Error:", err));
         }
 
-        // 7. RETURN SUCCESS
+        // 8. RETURN SUCCESS
         res.json({
             success: true,
             crystals: updatedUser.crystals,
@@ -220,10 +217,10 @@ const verifyGooglePlayPurchase = async (req, res) => {
 
     } catch (err) {
         console.error("Google API Detail:", err.response?.data || err.message);
-        return res.status(400).json({
+        return res.status(500).json({
             success: false,
             message: "Google verification failed",
-            detail: err.response?.data?.error?.message
+            detail: err.message
         });
     }
 };
