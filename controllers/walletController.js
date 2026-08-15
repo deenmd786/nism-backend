@@ -167,17 +167,20 @@ const verifyGooglePlayPurchase = async (req, res) => {
             return res.status(400).json({ success: false, message: "Purchase incomplete" });
         }
 
-        // 4. SECURE REWARD
-        const rewardAmount = CRYSTAL_REWARDS[productId];
-        if (!rewardAmount) {
-            return res.status(400).json({ success: false, message: "Invalid Product ID" });
+        // --- 🇮🇳 40% EXTRA INDEPENDENCE DAY OFFER ---
+        let rewardAmount = baseRewardAmount;
+        const now = new Date();
+
+        if (now <= independenceDayEnd) {
+            // Add 40% and round to the nearest whole natural number
+            rewardAmount = Math.round(baseRewardAmount * 1.40);
         }
 
         // 5. ATOMIC UPDATE USER
         const updatedUser = await User.findOneAndUpdate(
             { _id: req.user.id, processedPayments: { $ne: purchaseToken } },
             {
-                $inc: { crystals: rewardAmount },
+                $inc: { crystals: rewardAmount }, // Uses the dynamically calculated amount
                 $push: { processedPayments: purchaseToken }
             },
             { new: true }
